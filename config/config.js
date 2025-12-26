@@ -1,20 +1,28 @@
 const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
-// PASTIKAN ADA SSL settings untuk Railway!
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
   dialect: 'mysql',
   dialectOptions: {
     ssl: {
-      require: true,           // ✅ WAJIB untuk Railway
-      rejectUnauthorized: false // ✅ WAJIB untuk Railway
+      require: true,
+      rejectUnauthorized: false
     }
   },
   logging: false,
+  pool: {
+    max: 5,
+    min: 0,
+    acquire: 30000,
+    idle: 10000
+  }
 });
 
 sequelize.authenticate()
-  .then(() => console.log('✅ Database connected'))
-  .catch(err => console.error('❌ DB Connection Error:', err));
+  .then(() => console.log('✅ Database connected successfully'))
+  .catch(err => {
+    console.error('❌ Database connection failed:', err.message);
+    console.log('💡 Tips: Check DATABASE_URL in Railway Variables');
+  });
 
 module.exports = sequelize;

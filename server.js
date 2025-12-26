@@ -11,50 +11,58 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Security middleware
-app.use(helmet()); // Menambahkan security headers
-// CORS configuration
+app.use(helmet());
+
+// CORS configuration - PERLU DIUPDATE NANTI!
 const allowedOrigins = [
   'http://localhost:5500',
   'http://127.0.0.1:5500',
-  'https://YOUR_GITHUB_USERNAME.github.io' // Ganti nanti dengan GitHub Pages URL
+  'https://YOUR_GITHUB_USERNAME.github.io' // GANTI SETELAH DEPLOY FRONTEND
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (mobile apps, curl)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified origin.';
+      const msg = 'CORS policy blocks this origin';
       return callback(new Error(msg), false);
     }
     return callback(null, true);
   },
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' })); // Limit request body size
 
+app.use(express.json({ limit: '10mb' }));
 
-// Trust proxy (penting untuk rate limiting)
+// Trust proxy untuk Railway
 app.set('trust proxy', 1);
 
-// Rate limiting untuk semua API routes (kecuali auth yang punya rate limit sendiri)
+// SIMPLE HEALTH CHECK - HARUS SEBELUM RATE LIMIT!
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    version: '1.0.0'
+  });
+});
+
+// Rate limiting (setelah health check)
 app.use('/api', apiLimiter);
 
-// ROUTES
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
     message: 'AHP Jurusan API is running ✅',
     version: '1.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Health check endpoint (tanpa rate limit)
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      docs: 'Coming soon...'
+    }
   });
 });
 
@@ -71,7 +79,7 @@ const universityRoutes = require('./src/routes/universityRoutes');
 const recommendationRunRoutes = require('./src/routes/recommendationRunRoutes');
 
 // USE ROUTES
-app.use('/api/auth', authRoutes); // Auth routes punya rate limit sendiri
+app.use('/api/auth', authRoutes);
 app.use('/api/criteria', criteriaRoutes);
 app.use('/api/alternatives', alternativeRoutes);
 app.use('/api/pairwise', pairwiseRoutes);
@@ -84,9 +92,8 @@ app.use('/api/recommendation-run', recommendationRunRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err);
+  console.error('❌ Error:', err.message);
   
-  // Validation errors
   if (err.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
@@ -95,26 +102,16 @@ app.use((err, req, res, next) => {
     });
   }
   
-  // JWT errors
-  if (err.name === 'JsonWebTokenError') {
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
     return res.status(401).json({
       success: false,
-      message: 'Invalid token'
+      message: 'Authentication failed'
     });
   }
   
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Token expired'
-    });
-  }
-  
-  // Default error
   res.status(err.status || 500).json({
     success: false,
-    message: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    message: err.message || 'Internal server error'
   });
 });
 
@@ -122,36 +119,41 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: 'Endpoint not found'
+    message: 'Endpoint not found',
+    path: req.path
   });
 });
 
 // SYNC DB & START SERVER
 sequelize.sync({ alter: true })
   .then(() => {
-    console.log('✅ Models synced with database');
-    app.listen(PORT, () => {
+    console.log('✅ Database models synced');
+    
+    const server = app.listen(PORT, '0.0.0.0', () => {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('🚀 AHP Jurusan API Server');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log(`📡 Server running on port ${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔒 Security: Helmet + Rate Limiting enabled`);
-      console.log(`📝 API Documentation: http://localhost:${PORT}/`);
+      console.log(`📡 Port: ${PORT}`);
+      console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
+      console.log(`🔧 Env: ${process.env.NODE_ENV || 'development'}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('✅ Health check: /health');
+      console.log('✅ API Root: /');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     });
+    
+    // Graceful shutdown handler
+    process.on('SIGTERM', () => {
+      console.log('🔄 SIGTERM received, shutting down gracefully...');
+      server.close(() => {
+        console.log('✅ Server closed');
+        sequelize.close();
+        process.exit(0);
+      });
+    });
+    
   })
   .catch((err) => {
-    console.error('❌ Failed to sync models:', err);
+    console.error('❌ Database sync failed:', err);
     process.exit(1);
   });
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received, closing server gracefully...');
-  server.close(() => {
-    console.log('✅ Server closed');
-    sequelize.close();
-    process.exit(0);
-  });
-});

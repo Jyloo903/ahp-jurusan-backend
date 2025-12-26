@@ -5,7 +5,8 @@ buildCommand = "npm install"
 [deploy]
 startCommand = "npm start"
 healthcheckPath = "/health"
-healthcheckTimeout = 100
+healthcheckTimeout = 300  # Naikkan ke 300ms
+healthcheckInterval = 30
 
 [[services]]
 port = 3000
