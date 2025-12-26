@@ -1,7 +1,7 @@
 // src/controllers/universityController.js - FIXED VERSION
 const University = require('../models/University');
 const Alternative = require('../models/alternative');
-const UniversityAlternative = require('../models/universityAlternative');
+const UniversityAlternative = require('../models/UniversityAlternative');
 
 // CREATE UNIVERSITY (SUPERADMIN ONLY)
 exports.createUniversity = async (req, res) => {
