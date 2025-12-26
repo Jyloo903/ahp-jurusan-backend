@@ -1,11 +1,17 @@
+const { Sequelize } = require('sequelize'); // BARIS INI WAJIB ADA
+require('dotenv').config();
+
+// DATABASE_URL dari environment variable Railway
+const databaseUrl = process.env.DATABASE_URL;
+
 const sequelize = new Sequelize(databaseUrl, {
   dialect: 'mysql',
   dialectOptions: {
-    // Jika NODE_ENV adalah production, selalu aktifkan SSL
-    ssl: process.env.NODE_ENV === 'production' ? {
+    // Memaksa SSL di Production (Railway)
+    ssl: {
       require: true,
       rejectUnauthorized: false
-    } : false
+    }
   },
   logging: false,
   pool: {
@@ -15,3 +21,12 @@ const sequelize = new Sequelize(databaseUrl, {
     idle: 10000
   }
 });
+
+// Test koneksi
+sequelize.authenticate()
+  .then(() => console.log('✅ Database connected successfully'))
+  .catch(err => {
+    console.error('❌ Database connection failed:', err.message);
+  });
+
+module.exports = sequelize;
