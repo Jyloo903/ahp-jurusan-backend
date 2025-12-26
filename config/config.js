@@ -1,21 +1,11 @@
-const { Sequelize } = require('sequelize');
-require('dotenv').config();
-
-// DATABASE_URL FALLBACK untuk development
-const databaseUrl = process.env.DATABASE_URL || 'mysql://localhost:3306/test';
-
-// Debug log (hanya di development)
-if (process.env.NODE_ENV !== 'production') {
-  console.log('🔧 Database URL:', databaseUrl ? '✅ Set' : '❌ Not set');
-}
-
 const sequelize = new Sequelize(databaseUrl, {
   dialect: 'mysql',
   dialectOptions: {
-    ssl: databaseUrl.includes('railway.app') || databaseUrl.includes('railway.internal') ? {
+    // Jika NODE_ENV adalah production, selalu aktifkan SSL
+    ssl: process.env.NODE_ENV === 'production' ? {
       require: true,
       rejectUnauthorized: false
-    } : {}
+    } : false
   },
   logging: false,
   pool: {
@@ -25,12 +15,3 @@ const sequelize = new Sequelize(databaseUrl, {
     idle: 10000
   }
 });
-
-sequelize.authenticate()
-  .then(() => console.log('✅ Database connected successfully'))
-  .catch(err => {
-    console.error('❌ Database connection failed:', err.message);
-    console.log('💡 Check DATABASE_URL environment variable');
-  });
-
-module.exports = sequelize;
