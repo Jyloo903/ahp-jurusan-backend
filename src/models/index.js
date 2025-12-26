@@ -4,7 +4,7 @@ const Criteria = require('./criteria');
 const Alternative = require('./alternative');
 const PairwiseComparison = require('./PairwiseComparison');
 const University = require('./University');
-const UniversityAlternative = require('./universityAlternative'); // TAMBAH INI
+const UniversityAlternative = require('./UniversityAlternative'); // TAMBAH INI
 const UserPreference = require('./UserPreference');
 const RecommendationRun = require('./recommendationRun');
 
