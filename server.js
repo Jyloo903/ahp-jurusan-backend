@@ -13,11 +13,10 @@ const PORT = process.env.PORT || 3000;
 // Security middleware
 app.use(helmet());
 
-// ========== CORS CONFIGURATION - UPDATED ==========
-// Allow ALL origins for now - will restrict later if needed
+// ========== CORS CONFIGURATION - FIXED ==========
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl)
+    // Allow requests with no origin
     if (!origin) return callback(null, true);
     
     // Development - allow everything
@@ -26,7 +25,7 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // Production - allow specific domains
+    // Production - check domains
     const allowedDomains = [
       'ahp-pemilihan-jurusan.vercel.app',
       'localhost',
@@ -34,7 +33,6 @@ const corsOptions = {
       'github.io'
     ];
     
-    // Check if origin contains any allowed domain
     const isAllowed = allowedDomains.some(domain => 
       origin.includes(domain)
     );
@@ -44,21 +42,23 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // If not explicitly allowed, still allow but log warning
-    console.log(`⚠️  Allowing non-whitelisted origin: ${origin}`);
+    // Allow but log warning
+    console.log(`⚠️ Allowing non-whitelisted origin: ${origin}`);
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
   exposedHeaders: ['Content-Range', 'X-Content-Range'],
-  maxAge: 86400 // 24 hours
+  maxAge: 86400
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Handle preflight requests for all routes
-app.options('*', cors(corsOptions));
+// ========== FIX: Handle preflight requests ==========
+// JANGAN pakai app.options('*', ...) - itu yang bikin error!
+// Express sudah handle preflight otomatis dengan cors()
 
 // ========== MIDDLEWARE ==========
 app.use(express.json({ limit: '10mb' }));
@@ -67,7 +67,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Trust proxy untuk Railway
 app.set('trust proxy', 1);
 
-// ========== HEALTH ENDPOINTS (NO RATE LIMIT) ==========
+// ========== HEALTH ENDPOINTS ==========
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
@@ -78,8 +78,7 @@ app.get('/health', (req, res) => {
     environment: process.env.NODE_ENV || 'development',
     cors: {
       enabled: true,
-      origin: req.headers.origin || 'No origin header',
-      note: 'CORS configured for frontend access'
+      origin: req.headers.origin || 'No origin header'
     }
   });
 });
@@ -111,11 +110,7 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    cors: {
-      status: 'enabled',
-      origin: req.headers.origin || 'Not specified',
-      methods: corsOptions.methods
-    },
+    cors: 'enabled',
     endpoints: {
       health: '/health',
       apiHealth: '/api/health',
@@ -127,8 +122,7 @@ app.get('/', (req, res) => {
       ahp: '/api/ahp',
       admin: '/api/admin',
       universities: '/api/universities'
-    },
-    documentation: 'API documentation coming soon...'
+    }
   });
 });
 
@@ -177,56 +171,20 @@ app.use((err, req, res, next) => {
     timestamp: new Date().toISOString()
   });
 
-  // CORS specific error
+  // CORS error
   if (err.message.includes('CORS')) {
     return res.status(403).json({
       success: false,
-      message: 'CORS Error: ' + err.message,
-      details: {
-        requestedOrigin: req.headers.origin,
-        allowedMethods: corsOptions.methods
-      }
+      message: 'CORS Error',
+      details: err.message
     });
   }
 
   // JWT errors
-  if (err.name === 'JsonWebTokenError') {
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
     return res.status(401).json({
       success: false,
-      message: 'Invalid token'
-    });
-  }
-
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Token expired'
-    });
-  }
-
-  // Validation errors
-  if (err.name === 'ValidationError' || err.name === 'SequelizeValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation error',
-      errors: err.errors || err.message
-    });
-  }
-
-  // Rate limit error
-  if (err.name === 'RateLimitError') {
-    return res.status(429).json({
-      success: false,
-      message: 'Too many requests, please try again later'
-    });
-  }
-
-  // Sequelize errors
-  if (err.name === 'SequelizeUniqueConstraintError') {
-    return res.status(409).json({
-      success: false,
-      message: 'Duplicate entry',
-      field: err.errors?.[0]?.path
+      message: 'Authentication failed'
     });
   }
 
@@ -238,11 +196,7 @@ app.use((err, req, res, next) => {
 
   res.status(statusCode).json({
     success: false,
-    message: errorMessage,
-    ...(process.env.NODE_ENV === 'development' && {
-      stack: err.stack,
-      error: err.message
-    })
+    message: errorMessage
   });
 });
 
@@ -253,53 +207,31 @@ sequelize.sync({ alter: process.env.NODE_ENV === 'development' })
     
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('🚀 AHP Jurusan API Server - PRODUCTION READY');
+      console.log('🚀 AHP Jurusan API Server - RUNNING');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`📡 Port: ${PORT}`);
       console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔒 CORS: Enabled for frontend access`);
-      console.log(`📊 Database: Connected & Synced`);
+      console.log(`🔒 CORS: Enabled`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('✅ Health Check: /health');
       console.log('✅ API Root: /');
-      console.log('✅ API Health: /api/health');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📋 Available Endpoints:');
-      console.log('  🔐 Auth:          /api/auth');
-      console.log('  📊 Criteria:      /api/criteria');
-      console.log('  🎓 Alternatives:  /api/alternatives');
-      console.log('  ⚖️ Pairwise:      /api/pairwise');
-      console.log('  💯 Preferences:   /api/preferences');
-      console.log('  🧮 AHP Calculate: /api/ahp/calculate');
-      console.log('  👨‍💼 Admin:        /api/admin');
-      console.log('  🏛️ Universities:  /api/universities');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log(`🚀 Server is ready to accept connections`);
+      console.log(`🚀 Server started at ${new Date().toISOString()}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     });
 
     // Graceful shutdown
-    const gracefulShutdown = (signal) => {
-      console.log(`\n${signal} received, starting graceful shutdown...`);
-      
+    const gracefulShutdown = () => {
+      console.log('Shutdown signal received...');
       server.close(() => {
-        console.log('✅ HTTP server closed');
-        sequelize.close().then(() => {
-          console.log('✅ Database connection closed');
-          process.exit(0);
-        });
+        console.log('Server closed');
+        sequelize.close();
+        process.exit(0);
       });
-
-      // Force shutdown after 10 seconds
-      setTimeout(() => {
-        console.error('❌ Could not close connections in time, forcing shutdown');
-        process.exit(1);
-      }, 10000);
     };
 
-    // Listen for shutdown signals
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
     
   })
   .catch((err) => {
@@ -307,5 +239,4 @@ sequelize.sync({ alter: process.env.NODE_ENV === 'development' })
     process.exit(1);
   });
 
-// Export app for testing
 module.exports = app;
