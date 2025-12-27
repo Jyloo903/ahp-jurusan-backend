@@ -13,75 +13,61 @@ const PORT = process.env.PORT || 3000;
 // Security middleware
 app.use(helmet());
 
-// CORS configuration - UPDATED FOR VERCEL
-const allowedOrigins = [
-  'http://localhost:5500',
-  'http://127.0.0.1:5500',
-  'http://localhost:3000',
-  'https://ahp-pemilihan-jurusan.vercel.app', // VERCEL PRODUCTION
-  'https://*.vercel.app', // ALL VERCEL SUBDOMAINS
-  'https://ahp-pemilihan-jurusan-git-*.vercel.app' // VERCEL PREVIEW DEPLOYMENTS
-];
-
-app.use(cors({
+// ========== CORS CONFIGURATION - UPDATED ==========
+// Allow ALL origins for now - will restrict later if needed
+const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl)
+    // Allow requests with no origin (like mobile apps, curl)
     if (!origin) return callback(null, true);
     
-    // Development environment - allow all
+    // Development - allow everything
     if (process.env.NODE_ENV === 'development') {
       console.log(`🌐 DEV: Allowing origin: ${origin}`);
       return callback(null, true);
     }
     
-    // Check exact match
-    if (allowedOrigins.includes(origin)) {
-      console.log(`✅ CORS: Allowed exact match: ${origin}`);
-      return callback(null, true);
-    }
+    // Production - allow specific domains
+    const allowedDomains = [
+      'ahp-pemilihan-jurusan.vercel.app',
+      'localhost',
+      '127.0.0.1',
+      'github.io'
+    ];
     
-    // Check wildcard domains
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (allowed.includes('*')) {
-        const pattern = allowed.replace('*', '.*');
-        const regex = new RegExp(`^${pattern}$`);
-        return regex.test(origin);
-      }
-      return false;
-    });
+    // Check if origin contains any allowed domain
+    const isAllowed = allowedDomains.some(domain => 
+      origin.includes(domain)
+    );
     
     if (isAllowed) {
-      console.log(`✅ CORS: Allowed by pattern: ${origin}`);
+      console.log(`✅ PROD: Allowing origin: ${origin}`);
       return callback(null, true);
     }
     
-    // Check vercel.app domains
-    if (origin.endsWith('.vercel.app')) {
-      console.log(`✅ CORS: Allowing Vercel domain: ${origin}`);
-      return callback(null, true);
-    }
-    
-    // Blocked
-    console.warn(`🚨 CORS: Blocked origin: ${origin}`);
-    const msg = `CORS policy blocks this origin: ${origin}. Allowed: ${allowedOrigins.join(', ')}`;
-    return callback(new Error(msg), false);
+    // If not explicitly allowed, still allow but log warning
+    console.log(`⚠️  Allowing non-whitelisted origin: ${origin}`);
+    return callback(null, true);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range']
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400 // 24 hours
+};
 
-// Handle preflight requests
-app.options('*', cors());
+app.use(cors(corsOptions));
 
+// Handle preflight requests for all routes
+app.options('*', cors(corsOptions));
+
+// ========== MIDDLEWARE ==========
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Trust proxy untuk Railway
 app.set('trust proxy', 1);
 
-// SIMPLE HEALTH CHECK - HARUS SEBELUM RATE LIMIT!
+// ========== HEALTH ENDPOINTS (NO RATE LIMIT) ==========
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
@@ -90,7 +76,11 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
-    database: 'connected'
+    cors: {
+      enabled: true,
+      origin: req.headers.origin || 'No origin header',
+      note: 'CORS configured for frontend access'
+    }
   });
 });
 
@@ -101,36 +91,48 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Rate limiting (setelah health check)
-app.use('/api', apiLimiter);
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({ 
-    success: true,
-    message: 'AHP Jurusan API is running ✅',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    cors: {
-      allowedOrigins: allowedOrigins,
-      note: 'Configured for Vercel deployment'
-    },
-    endpoints: {
-      health: '/health',
-      api: '/api',
-      auth: '/api/auth',
-      criteria: '/api/criteria',
-      alternatives: '/api/alternatives'
+    request: {
+      origin: req.headers.origin,
+      method: req.method,
+      ip: req.ip
     }
   });
 });
 
-// IMPORT ROUTES
+// ========== RATE LIMITING ==========
+app.use('/api', apiLimiter);
+
+// ========== ROOT ENDPOINT ==========
+app.get('/', (req, res) => {
+  res.json({ 
+    success: true,
+    message: '🚀 AHP Jurusan API Server is running',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    cors: {
+      status: 'enabled',
+      origin: req.headers.origin || 'Not specified',
+      methods: corsOptions.methods
+    },
+    endpoints: {
+      health: '/health',
+      apiHealth: '/api/health',
+      auth: '/api/auth',
+      criteria: '/api/criteria',
+      alternatives: '/api/alternatives',
+      pairwise: '/api/pairwise',
+      preferences: '/api/preferences',
+      ahp: '/api/ahp',
+      admin: '/api/admin',
+      universities: '/api/universities'
+    },
+    documentation: 'API documentation coming soon...'
+  });
+});
+
+// ========== IMPORT ROUTES ==========
 const authRoutes = require('./src/routes/authRoutes');
 const criteriaRoutes = require('./src/routes/criteriaRoutes');
 const alternativeRoutes = require('./src/routes/alternativeRoutes');
@@ -142,7 +144,7 @@ const alternativeComparisonRoutes = require('./src/routes/alternativeComparisonR
 const universityRoutes = require('./src/routes/universityRoutes');
 const recommendationRunRoutes = require('./src/routes/recommendationRunRoutes');
 
-// USE ROUTES
+// ========== USE ROUTES ==========
 app.use('/api/auth', authRoutes);
 app.use('/api/criteria', criteriaRoutes);
 app.use('/api/alternatives', alternativeRoutes);
@@ -154,42 +156,63 @@ app.use('/api/alternative-comparisons', alternativeComparisonRoutes);
 app.use('/api/universities', universityRoutes);
 app.use('/api/recommendation-run', recommendationRunRoutes);
 
-// Error handling middleware
+// ========== ERROR HANDLING ==========
+// 404 - Route not found
+app.use((req, res, next) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.path}`,
+    timestamp: new Date().toISOString(),
+    suggestion: 'Check / endpoint for available routes'
+  });
+});
+
+// Global error handler
 app.use((err, req, res, next) => {
   console.error('❌ Server Error:', {
     message: err.message,
-    stack: err.stack,
     path: req.path,
     method: req.method,
+    origin: req.headers.origin,
     timestamp: new Date().toISOString()
   });
-  
-  // CORS Error khusus
-  if (err.message.includes('CORS policy')) {
+
+  // CORS specific error
+  if (err.message.includes('CORS')) {
     return res.status(403).json({
       success: false,
-      message: err.message,
-      details: 'Please check your frontend domain is allowed',
-      allowedOrigins: allowedOrigins,
-      currentOrigin: req.headers.origin || 'No origin header'
+      message: 'CORS Error: ' + err.message,
+      details: {
+        requestedOrigin: req.headers.origin,
+        allowedMethods: corsOptions.methods
+      }
     });
   }
-  
-  if (err.name === 'ValidationError') {
+
+  // JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid token'
+    });
+  }
+
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      message: 'Token expired'
+    });
+  }
+
+  // Validation errors
+  if (err.name === 'ValidationError' || err.name === 'SequelizeValidationError') {
     return res.status(400).json({
       success: false,
       message: 'Validation error',
-      errors: err.errors
+      errors: err.errors || err.message
     });
   }
-  
-  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication failed'
-    });
-  }
-  
+
   // Rate limit error
   if (err.name === 'RateLimitError') {
     return res.status(429).json({
@@ -197,68 +220,68 @@ app.use((err, req, res, next) => {
       message: 'Too many requests, please try again later'
     });
   }
-  
+
+  // Sequelize errors
+  if (err.name === 'SequelizeUniqueConstraintError') {
+    return res.status(409).json({
+      success: false,
+      message: 'Duplicate entry',
+      field: err.errors?.[0]?.path
+    });
+  }
+
   // Default error
-  res.status(err.status || 500).json({
+  const statusCode = err.statusCode || 500;
+  const errorMessage = process.env.NODE_ENV === 'production' 
+    ? 'Internal server error' 
+    : err.message;
+
+  res.status(statusCode).json({
     success: false,
-    message: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
-      : err.message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    message: errorMessage,
+    ...(process.env.NODE_ENV === 'development' && {
+      stack: err.stack,
+      error: err.message
+    })
   });
 });
 
-// 404 handler
-app.use((req, res) => {
-  console.warn('🔍 404 Not Found:', {
-    path: req.path,
-    method: req.method,
-    ip: req.ip,
-    timestamp: new Date().toISOString()
-  });
-  
-  res.status(404).json({
-    success: false,
-    message: 'Endpoint not found',
-    path: req.path,
-    method: req.method,
-    timestamp: new Date().toISOString(),
-    suggestion: 'Check / endpoint for available routes'
-  });
-});
-
-// SYNC DB & START SERVER
-sequelize.sync({ alter: true })
+// ========== START SERVER ==========
+sequelize.sync({ alter: process.env.NODE_ENV === 'development' })
   .then(() => {
-    console.log('✅ Database models synced');
+    console.log('✅ Database models synced successfully');
     
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('🚀 AHP Jurusan API Server - PRODUCTION READY');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`📡 Port: ${PORT}`);
-      console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
-      console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔒 CORS Enabled for: ${allowedOrigins.join(', ')}`);
+      console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔒 CORS: Enabled for frontend access`);
+      console.log(`📊 Database: Connected & Synced`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('✅ Health check: /health');
-      console.log('✅ API Health: /api/health');
+      console.log('✅ Health Check: /health');
       console.log('✅ API Root: /');
+      console.log('✅ API Health: /api/health');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📋 Available Routes:');
-      console.log('  🔐 Auth: /api/auth');
-      console.log('  📊 Criteria: /api/criteria');
-      console.log('  🎓 Alternatives: /api/alternatives');
-      console.log('  ⚖️ Pairwise: /api/pairwise');
-      console.log('  🧮 AHP: /api/ahp');
-      console.log('  👨‍💼 Admin: /api/admin');
-      console.log('  🏛️ Universities: /api/universities');
+      console.log('📋 Available Endpoints:');
+      console.log('  🔐 Auth:          /api/auth');
+      console.log('  📊 Criteria:      /api/criteria');
+      console.log('  🎓 Alternatives:  /api/alternatives');
+      console.log('  ⚖️ Pairwise:      /api/pairwise');
+      console.log('  💯 Preferences:   /api/preferences');
+      console.log('  🧮 AHP Calculate: /api/ahp/calculate');
+      console.log('  👨‍💼 Admin:        /api/admin');
+      console.log('  🏛️ Universities:  /api/universities');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log(`🚀 Server is ready to accept connections`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     });
-    
-    // Graceful shutdown handler
-    const gracefulShutdown = () => {
-      console.log('🔄 Received shutdown signal, shutting down gracefully...');
+
+    // Graceful shutdown
+    const gracefulShutdown = (signal) => {
+      console.log(`\n${signal} received, starting graceful shutdown...`);
+      
       server.close(() => {
         console.log('✅ HTTP server closed');
         sequelize.close().then(() => {
@@ -266,13 +289,23 @@ sequelize.sync({ alter: true })
           process.exit(0);
         });
       });
+
+      // Force shutdown after 10 seconds
+      setTimeout(() => {
+        console.error('❌ Could not close connections in time, forcing shutdown');
+        process.exit(1);
+      }, 10000);
     };
-    
-    process.on('SIGTERM', gracefulShutdown);
-    process.on('SIGINT', gracefulShutdown);
+
+    // Listen for shutdown signals
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
     
   })
   .catch((err) => {
-    console.error('❌ Database sync failed:', err);
+    console.error('❌ Failed to sync database:', err);
     process.exit(1);
   });
+
+// Export app for testing
+module.exports = app;
